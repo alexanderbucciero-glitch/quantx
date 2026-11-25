@@ -1,0 +1,34 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* QUANTX terminal: blue-black ground, amber for focus/brand, green/red only for direction. */
+:root {
+  --ink: #090d12;      /* page */
+  --panel: #0f151c;    /* panels */
+  --raised: #151d26;   /* hover / headers */
+  --line: #1f2a35;     /* hairlines */
+  --text: #d5dde5;
+  --mute: #8593a1;
+  --dim: #56636f;
+  --amber: #f0a634;
+  --up: #2fb67c;
+  --down: #e5534b;
+  --info: #5aa9e6;
+  --warn: #d9a23c;
+  color-scheme: dark;
+}
+html, body { background: var(--ink); color: var(--text); }
+body { font-family: 'IBM Plex Sans', system-ui, sans-serif; font-size: 13px; -webkit-font-smoothing: antialiased; }
+.num { font-family: 'IBM Plex Mono', ui-monospace, monospace; font-variant-numeric: tabular-nums; }
+.label { font-size: 10.5px; letter-spacing: .08em; text-transform: uppercase; color: var(--mute); font-weight: 500; }
+::selection { background: color-mix(in srgb, var(--amber) 35%, transparent); }
+*::-webkit-scrollbar { width: 8px; height: 8px; }
+*::-webkit-scrollbar-thumb { background: var(--line); border-radius: 4px; }
+a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible { outline: 1px solid var(--amber); outline-offset: 1px; }
+table.grid-t { width: 100%; border-collapse: collapse; }
+table.grid-t th { text-align: left; font-weight: 500; color: var(--mute); font-size: 10.5px; letter-spacing: .06em; text-transform: uppercase; padding: 6px 10px; border-bottom: 1px solid var(--line); position: sticky; top: 0; background: var(--panel); white-space: nowrap; }
+table.grid-t td { padding: 5px 10px; border-bottom: 1px solid color-mix(in srgb, var(--line) 60%, transparent); white-space: nowrap; }
+table.grid-t tbody tr:hover td { background: var(--raised); }
+table.grid-t th.r, table.grid-t td.r { text-align: right; }
+@media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }
