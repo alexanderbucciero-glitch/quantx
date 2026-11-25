@@ -10,7 +10,7 @@ export function Panel({ title, right, children, className = "", bodyClass = "" }
       {title != null && (
         <header className="flex items-center justify-between gap-3 px-3 h-8 border-b border-line shrink-0">
           <h2 className="label !text-text/90 truncate">{title}</h2>
-          <div className="flex items-center gap-2 text-2xs text-mute shrink-0">{right}</div>
+          <div className="flex items-center gap-2 text-2xs text-mute min-w-0 overflow-hidden whitespace-nowrap">{right}</div>
         </header>
       )}
       <div className={`min-w-0 ${bodyClass}`}>{children}</div>

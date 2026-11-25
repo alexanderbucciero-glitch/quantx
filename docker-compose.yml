@@ -1,0 +1,26 @@
+# Reproducible deployment: `docker compose up --build`, then open http://localhost:3000
+# The live-update WebSocket connects to port 8000 on the same host, so both ports are published.
+services:
+  backend:
+    build: ./backend
+    env_file: [./backend/.env]
+    environment:
+      QUANTX_CORS_ORIGINS: http://localhost:3000
+    volumes: [quantx-data:/data]
+    ports: ["127.0.0.1:8000:8000"]
+    restart: unless-stopped
+  web:
+    build: ./web
+    depends_on: [backend]
+    ports: ["127.0.0.1:3000:3000"]
+    restart: unless-stopped
+  # Optional, for later migration: set QUANTX_DATABASE_URL to this database.
+  timescaledb:
+    image: timescale/timescaledb:2.17.2-pg16
+    profiles: ["postgres"]
+    environment: { POSTGRES_DB: quantx, POSTGRES_USER: quantx, POSTGRES_PASSWORD: change-me }
+    volumes: [quantx-pg:/var/lib/postgresql/data]
+    ports: ["127.0.0.1:5432:5432"]
+volumes:
+  quantx-data:
+  quantx-pg:

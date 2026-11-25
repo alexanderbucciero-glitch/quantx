@@ -6,13 +6,14 @@ import "@fontsource/ibm-plex-mono/400.css";
 import "@fontsource/ibm-plex-mono/500.css";
 import "./globals.css";
 import Shell from "@/components/Shell";
+import { AgentProvider } from "@/lib/agent";
 
 export const metadata: Metadata = { title: "QUANTX", description: "Quantitative market research terminal" };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en">
-      <body><Shell>{children}</Shell></body>
+      <body><AgentProvider><Shell>{children}</Shell></AgentProvider></body>
     </html>
   );
 }

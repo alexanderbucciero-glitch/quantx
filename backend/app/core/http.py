@@ -31,9 +31,10 @@ HOST_MIN_INTERVAL: dict[str, float] = {
     "www.sec.gov": 0.15,
     "api.coingecko.com": 2.5,         # free/public tier is ~5-30 calls/min
     "api.dexscreener.com": 0.25,      # documented 60-300 req/min depending on endpoint
-    "api.exchange.coinbase.com": 0.2,
+    "api.exchange.coinbase.com": 0.12,  # public REST limit ~10 req/s
     "api.kraken.com": 1.0,
     "fred.stlouisfed.org": 0.5,
+    "api.geckoterminal.com": 6.5,     # free tier: observed 429s well below the documented 30/min
 }
 
 

@@ -14,5 +14,8 @@ class Settings(BaseSettings):
 
     cors_origins: str = "http://localhost:3000"
 
+    # Local SQLite by default; e.g. postgresql+psycopg://user:pass@localhost/quantx for Postgres/Timescale
+    database_url: str = "sqlite:///./data/quantx.db"
+
 
 settings = Settings()

@@ -2,22 +2,46 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState, type ReactNode } from "react";
+import { STATE_KIND, STATE_LABEL, useAgent } from "@/lib/agent";
+
+function AgentControl() {
+  const { status, busy, activate, deactivate, error } = useAgent();
+  const active = !!status?.active;
+  const state = status?.state ?? "offline";
+  const kind = STATE_KIND[state] ?? "neutral";
+  const dot = { up: "bg-up", down: "bg-down", warn: "bg-warn", info: "bg-info", neutral: "bg-dim", amber: "bg-amber" }[kind];
+  return (
+    <div className="flex items-center gap-2 min-w-0">
+      <Link href="/agent" className="hidden sm:flex items-center gap-1.5 text-2xs text-mute hover:text-text min-w-0" title={status?.current.task ?? ""}>
+        <span className={`w-1.5 h-1.5 rounded-full ${dot} ${active && state !== "error" ? "animate-pulse" : ""}`} />
+        <span className="truncate max-w-[180px]">{error && !status ? "Backend offline" : STATE_LABEL[state] ?? state}</span>
+      </Link>
+      <button onClick={active ? deactivate : activate} disabled={busy || (!status && !!error)}
+        className={`h-7 px-3 rounded-[3px] text-[11.5px] font-semibold tracking-[0.12em] num border transition-colors disabled:opacity-50 ${
+          active ? "border-down/60 text-down hover:bg-down/10" : "border-amber bg-amber text-ink hover:brightness-110"}`}>
+        {busy ? "…" : active ? "DEACTIVATE AI" : "ACTIVATE AI"}
+      </button>
+    </div>
+  );
+}
 
 export const NAV: { href: string; label: string; code: string; group: string; stage?: number }[] = [
   { href: "/", label: "Dashboard", code: "DASH", group: "Overview" },
+  { href: "/agent", label: "AI Agent", code: "AGNT", group: "Overview" },
   { href: "/markets", label: "Global Markets", code: "MKTS", group: "Overview" },
   { href: "/stocks", label: "Stock Intelligence", code: "EQTY", group: "Markets" },
   { href: "/crypto", label: "Crypto Intelligence", code: "CRYP", group: "Markets" },
   { href: "/memecoins", label: "Memecoin Scanner", code: "MEME", group: "Markets" },
+  { href: "/structure", label: "Market Structure", code: "STRC", group: "Markets" },
   { href: "/social", label: "Social Intelligence", code: "SOCL", group: "Intelligence", stage: 5 },
   { href: "/news", label: "Breaking News", code: "NEWS", group: "Intelligence" },
   { href: "/events", label: "Event-Driven Analysis", code: "EVNT", group: "Intelligence" },
-  { href: "/predictions", label: "AI Predictions", code: "PRED", group: "Research", stage: 3 },
-  { href: "/signals", label: "Long / Short Signals", code: "SIGS", group: "Research", stage: 7 },
-  { href: "/backtest", label: "Backtesting Lab", code: "BTST", group: "Research", stage: 4 },
-  { href: "/portfolio", label: "Paper Portfolio", code: "PAPR", group: "Research", stage: 9 },
+  { href: "/predictions", label: "AI Predictions", code: "PRED", group: "Research" },
+  { href: "/signals", label: "Long / Short Signals", code: "SIGS", group: "Research" },
+  { href: "/backtest", label: "Backtesting Lab", code: "BTST", group: "Research" },
+  { href: "/portfolio", label: "Paper Portfolio", code: "PAPR", group: "Research" },
   { href: "/history", label: "Historical Database", code: "HIST", group: "System" },
-  { href: "/models", label: "Model Performance", code: "MODL", group: "System", stage: 10 },
+  { href: "/models", label: "Model Performance", code: "MODL", group: "System" },
   { href: "/settings", label: "Integrations", code: "INTG", group: "System" },
 ];
 
@@ -67,15 +91,15 @@ export default function Shell({ children }: { children: ReactNode }) {
           ))}
         </nav>
         <div className="p-3 border-t border-line text-2xs text-dim leading-snug">
-          Research and paper simulation only. No brokerage or wallet connections.
+          Free data sources. All trading is simulated: there are no brokerage or wallet connections.
         </div>
       </aside>
       {open && <button aria-label="Close menu" className="fixed inset-0 z-20 bg-black/50 lg:hidden" onClick={() => setOpen(false)} />}
       <div className="flex-1 min-w-0 lg:ml-[212px] flex flex-col">
         <header className="sticky top-0 z-10 h-11 bg-ink/95 backdrop-blur border-b border-line flex items-center gap-3 px-4">
           <button className="lg:hidden text-mute hover:text-text" onClick={() => setOpen(true)} aria-label="Open menu">☰</button>
-          <span className="text-2xs text-dim hidden sm:inline">Free data sources · personal research</span>
-          <div className="ml-auto"><Clock /></div>
+          <AgentControl />
+          <div className="ml-auto hidden md:block"><Clock /></div>
         </header>
         <main className="flex-1 p-3 sm:p-4 min-w-0">{children}</main>
       </div>

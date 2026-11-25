@@ -31,17 +31,43 @@ The SEC requires automated clients to identify themselves this way.
 
 Charts use TradingView **Lightweight Charts** (open source). They need no TradingView account.
 
-## What is deliberately empty
+## AI agent, strategies and paper trading (v0.2)
 
-AI Predictions, Signals, Backtesting, Paper Portfolio, Model Performance and Social Intelligence
-explain what they need and show **no placeholder numbers**. They are built in Stages 3–10
-(see `docs/ARCHITECTURE.md`).
+Press **ACTIVATE AI** in the top bar. The agent then does the following:
+- builds a universe of the 25 highest-volume Coinbase crypto pairs and the top trending Solana / Pump.fun pools
+- streams live prices over WebSocket
+- analyses every newly closed candle (liquidity sweeps, BOS/CHoCH, fair value gaps, order blocks and more)
+- runs five strategies against configurable 2–5% targets after fees and slippage
+- validates every strategy walk-forward and opens **simulated** positions only when all decision gates pass
+
+Everything it does appears in the live activity log on the **AI Agent** page.
+
+| New / upgraded page | What it shows |
+|---|---|
+| AI Agent | Activate/deactivate, live activity log, counters, latency, data-source status, opportunity ranking, research reports |
+| Market Structure | Annotated candlestick chart (BOS/CHoCH, sweeps, liquidity pools, FVGs, order blocks, S/R, entry/stop/TP lines) with the evidence for each detection |
+| Paper Portfolio | Simulated balance, open/closed positions, return, win rate, profit factor, drawdown, equity curve, exposure, settings |
+| Long / Short Signals | Every setup, accepted or rejected, with the deciding gate |
+| AI Predictions | AI confidence vs historical win rate vs walk-forward calibrated probability |
+| Backtesting Lab | Bar-by-bar replay with costs, metrics, regime breakdown and trades on the chart |
+| Model Performance | Strategy × regime results and cointegrated pairs |
+
+How it works, and the first honest results: `docs/QUANT_ENGINE.md`.
+Social Intelligence still needs a permitted API (Reddit approval or a YouTube key).
+Simulated records are stored in `backend/data/quantx.db` (SQLite, local).
+
+### Docker
+
+```bash
+docker compose up --build
+```
 
 ## Optional free keys
 
 | Key | Unlocks | Where |
 |---|---|---|
 | `QUANTX_TIINGO_API_KEY` | Stock & ETF daily price history (decades) | tiingo.com → Account → API |
+| `QUANTX_DATABASE_URL` | Move from local SQLite to PostgreSQL/TimescaleDB | see `backend/.env.example` |
 
 The Tiingo adapter is written but has not yet been tested against the live API (no key in the build environment).
 

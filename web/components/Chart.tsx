@@ -1,8 +1,12 @@
 "use client";
 import { useEffect, useRef } from "react";
 import {
-  CandlestickSeries, ColorType, createChart, HistogramSeries, LineSeries, type IChartApi, type Time,
+  CandlestickSeries, ColorType, createChart, createSeriesMarkers, HistogramSeries, LineSeries, LineStyle,
+  type IChartApi, type SeriesMarker, type Time,
 } from "lightweight-charts";
+
+export type ChartMarker = { time: number | string; position: "aboveBar" | "belowBar" | "inBar"; color: string; shape: "arrowUp" | "arrowDown" | "circle" | "square"; text?: string };
+export type PriceLine = { price: number; color: string; title: string; style?: "solid" | "dashed" | "dotted"; width?: number };
 
 type Bar = { time: number | string; open: number; high: number; low: number; close: number; volume?: number | null };
 type Pt = { time: number | string; value: number };
@@ -23,8 +27,9 @@ function baseChart(el: HTMLDivElement, height: number): IChartApi {
 }
 
 /** TradingView Lightweight Charts (Apache-2.0). Candles + volume + optional overlay lines. */
-export function CandleChart({ bars, overlays = [], height = 380 }:
-  { bars: Bar[]; overlays?: { name: string; color: string; data: (number | null)[] }[]; height?: number }) {
+export function CandleChart({ bars, overlays = [], height = 380, markers = [], lines = [] }:
+  { bars: Bar[]; overlays?: { name: string; color: string; data: (number | null)[] }[]; height?: number;
+    markers?: ChartMarker[]; lines?: PriceLine[] }) {
   const ref = useRef<HTMLDivElement>(null);
   useEffect(() => {
     if (!ref.current || bars.length === 0) return;
@@ -44,9 +49,17 @@ export function CandleChart({ bars, overlays = [], height = 380 }:
       const s = chart.addSeries(LineSeries, { color: o.color, lineWidth: 1, lastValueVisible: false, priceLineVisible: false, crosshairMarkerVisible: false });
       s.setData(bars.flatMap((b, i) => (o.data[i] == null ? [] : [{ time: b.time as Time, value: o.data[i] as number }])));
     }
+    if (markers.length) {
+      const sorted = [...markers].sort((a, b) => (a.time as number) - (b.time as number));
+      createSeriesMarkers(c, sorted as SeriesMarker<Time>[]);
+    }
+    const st = { solid: LineStyle.Solid, dashed: LineStyle.Dashed, dotted: LineStyle.Dotted };
+    for (const l of lines) {
+      c.createPriceLine({ price: l.price, color: l.color, lineWidth: (l.width ?? 1) as 1, lineStyle: st[l.style ?? "dashed"], axisLabelVisible: true, title: l.title });
+    }
     chart.timeScale().fitContent();
     return () => chart.remove();
-  }, [bars, overlays, height]);
+  }, [bars, overlays, height, markers, lines]);
   return <div ref={ref} style={{ height }} className="w-full" />;
 }
 
@@ -55,7 +68,7 @@ export function LineChart({ data, height = 300, color }: { data: Pt[]; height?: 
   useEffect(() => {
     if (!ref.current || data.length === 0) return;
     const chart = baseChart(ref.current, height);
-    chart.applyOptions({ timeScale: { timeVisible: false } });
+    chart.applyOptions({ timeScale: { timeVisible: typeof data[0]?.time === "number" } });
     const s = chart.addSeries(LineSeries, { color: color || css("--amber"), lineWidth: 2 });
     s.setData(data.map(p => ({ time: p.time as Time, value: p.value })));
     chart.timeScale().fitContent();

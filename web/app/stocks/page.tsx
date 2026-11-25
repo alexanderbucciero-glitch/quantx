@@ -54,6 +54,9 @@ export default function Stocks() {
     <>
       <PageHead title="Stock Intelligence" sub="Company data straight from SEC EDGAR (primary source). Fundamentals are shown with their filing date, so you see what was known when." right={<Search onPick={setT} />} />
       <div className="grid gap-3">
+        <div className="border border-warn/40 bg-warn/5 rounded-[3px] px-3 py-2 text-xs text-mute">
+          <span className="text-warn">Stock scanning by the AI agent is inactive.</span> It needs intraday prices, and the only free option found (Tiingo) requires a free API key in <span className="num">backend/.env</span>. Company filings, events and fundamentals below work without it.
+        </div>
         <Panel title={prof.data ? <>{prof.data.name} <span className="num text-amber ml-1">{prof.data.ticker}</span></> : t} right={<SourceTag source="SEC EDGAR" at={prof.data?.fetched_at} />}>
           {prof.error ? <ErrorBox message={prof.error} onRetry={prof.reload} /> : !prof.data ? <Loading rows={2} /> : (
             <div className="p-3 grid grid-cols-2 md:grid-cols-5 gap-4">

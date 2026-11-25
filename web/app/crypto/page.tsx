@@ -33,6 +33,7 @@ export default function Crypto() {
           <select id="product" value={p} onChange={e => setP(e.target.value)} className="bg-raised border border-line rounded-[2px] text-xs px-1.5 h-6">{PRODUCTS.map(x => <option key={x}>{x}</option>)}</select>
           <div className="flex border border-line rounded-[2px]">{INTERVALS.map(x =>
             <button key={x} onClick={() => setIv(x)} className={`px-2 h-6 text-2xs num ${iv === x ? "bg-raised text-amber" : "text-mute hover:text-text"}`}>{x}</button>)}</div>
+          <a href={`/structure?symbol=${p}&cls=crypto&tf=${iv === "6h" ? "6h" : iv}`} className="text-amber hover:underline">Market structure →</a>
           <SourceTag source="Coinbase" at={c.data?.fetched_at} /></>}>
           {c.error ? <ErrorBox message={c.error} onRetry={c.reload} /> : !c.data ? <Loading rows={8} /> : (
             <div className="grid lg:grid-cols-[1fr_260px]">
