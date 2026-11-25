@@ -22,6 +22,7 @@ class Signal:
     bearish: list[str] = field(default_factory=list)
     features: dict = field(default_factory=dict)
     trigger: dict | None = None    # detection that triggered it
+    exit_mode: str = "targets"     # targets: TP1/TP2 + stop | trail: trailing stop + signal exit, no fixed target
 
     def to_json(self) -> dict:
         return plain(asdict(self))
@@ -39,11 +40,18 @@ class Strategy:
     name = "base"
     label = "Base"
     description = ""
-    asset_classes = ("crypto", "memecoin", "equity")
-    shortable = ("crypto", "equity")   # memecoins: spot DEX, long only
+    asset_classes = ("crypto", "memecoin", "equity", "fx", "commodity")
+    shortable = ("crypto", "equity", "fx", "commodity")   # memecoins: spot DEX, long only
+
+    exit_mode = "targets"
+    trail_atr: float | None = None
 
     def evaluate(self, s: Series, a: Analysis, t: int) -> Signal | None:  # pragma: no cover
         raise NotImplementedError
+
+    def should_exit(self, s: Series, a: Analysis, t: int, direction: str) -> str | None:
+        """Signal-based exit on a closed candle (None = keep holding). Default: exits come from orders only."""
+        return None
 
     # ----- shared helpers (all causal)
     @staticmethod

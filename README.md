@@ -31,6 +31,20 @@ The SEC requires automated clients to identify themselves this way.
 
 Charts use TradingView **Lightweight Charts** (open source). They need no TradingView account.
 
+## Autonomous paper-trading desk (v0.3)
+
+Press **ACTIVATE**. With no further input, the backend agent:
+- scans crypto, gold, forex and Solana pools
+- decides on every closed candle
+- executes simulated market, limit and stop orders
+- manages stops, targets and trailing exits
+- closes positions on its own
+- writes a report for every closed trade, plus daily, weekly and monthly reports
+
+**DEACTIVATE** stops new entries but keeps managing open positions. **EMERGENCY STOP** closes everything at market.
+
+Everything is simulated, and nothing can trade real money. See `docs/AUTONOMOUS_DESK.md` for how it decides, the risk rules, and the honest results so far.
+
 ## AI agent, strategies and paper trading (v0.2)
 
 Press **ACTIVATE AI** in the top bar. The agent then does the following:

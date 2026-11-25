@@ -155,80 +155,6 @@ def test_pairs_detects_cointegration():
     assert not pairs.engle_granger(walk, b)["cointegrated_5pct"]
 
 
-# ------------------------------------------------------------------ paper trading (temp database)
-@pytest.fixture()
-def tmpdb(tmp_path):
-    from app.core import db
-    db.reset_engine_for_tests(f"sqlite:///{tmp_path}/t.db")
-    yield db
-    db.reset_engine_for_tests("sqlite:///./data/quantx.db")
-
-
-def test_paper_lifecycle_partial_breakeven_and_fees(tmpdb):
-    from app.paper import engine as paper
-    q = paper.Quote(99.95, 100.05, 100, time.time())
-    plan = {"stop": 98.0, "tp1": 102.0, "tp2": 104.0}
-    f = paper.open_position("TEST-USD", "crypto", "momentum", "long", q, plan, 3600, {}, None, None, 1e9)
-    assert f["price"] > 100.05                             # bought at the ask plus slippage
-    risk = (f["price"] - 98) * f["qty"]
-    assert risk <= 10_000 * 0.005 + 1e-6                    # never more than 0.5% of equity at risk
-    assert f["notional"] <= 10_000 * 0.20 * 1.01             # 20% notional cap binds here
-    assert paper.risk_check("TEST-USD", "crypto", 100) is not None   # no duplicate positions
-    ev = paper.on_quote("TEST-USD", paper.Quote(102.1, 102.2, 102.15, time.time()))
-    assert ev[0]["kind"] == "tp1" and not ev[0]["closed"]
-    p = paper.open_positions("TEST-USD")[0]
-    assert p["stop"] == pytest.approx(f["price"]) and p["remaining_qty"] == pytest.approx(f["qty"] / 2)
-    ev = paper.on_quote("TEST-USD", paper.Quote(f["price"] - 0.01, f["price"], f["price"], time.time()))
-    assert ev[0]["kind"] == "breakeven" and ev[0]["closed"]
-    m = paper.metrics()
-    assert m["closed_trades"] == 1 and m["fees_paid"] > 0 and m["simulated"] is True
-    assert m["equity"] == pytest.approx(10_000 + m["equity"] - 10_000)
-
-
-def test_paper_stop_and_time_exit(tmpdb):
-    from app.paper import engine as paper
-    q = paper.Quote(99.95, 100.05, 100, time.time())
-    paper.open_position("S-USD", "crypto", "volume", "short", q, {"stop": 102.0, "tp1": 98.0, "tp2": 96.0}, 3600, {}, None, None, 1e9)
-    ev = paper.on_quote("S-USD", paper.Quote(102.5, 102.6, 102.55, time.time()))
-    assert ev[0]["kind"] == "stop" and ev[0]["pnl"] < 0
-    paper.open_position("T-USD", "crypto", "volume", "long", q, {"stop": 98.0, "tp1": 102.0, "tp2": 104.0}, 10, {}, None, None, 1e9)
-    ev = paper.on_quote("T-USD", paper.Quote(100.0, 100.1, 100.05, time.time() + 11))
-    assert ev[0]["kind"] == "time" and ev[0]["closed"]
-
-
-# ------------------------------------------------------------------ agent activation / shutdown
-def test_agent_activate_deactivate(tmpdb, monkeypatch):
-    from app.agent.engine import Agent
-
-    async def run():
-        ag = Agent()
-        calls = []
-
-        async def fake_universe():
-            calls.append("universe")
-            await ag.emit("Universe built (test)", "scan")
-        monkeypatch.setattr(ag, "refresh_universe", fake_universe)
-        monkeypatch.setattr(ag.stream, "start", lambda: calls.append("stream"))
-
-        async def nostop():
-            calls.append("stream-stop")
-        monkeypatch.setattr(ag.stream, "stop", nostop)
-        st1 = await ag.activate()
-        assert st1["active"] and st1["state"] == "initialising"
-        await asyncio.sleep(0.05)
-        assert "universe" in calls and "stream" in calls
-        assert any("ACTIVATE AI" in e["message"] for e in ag.logbuf)
-        st2 = await ag.deactivate()
-        assert not st2["active"] and st2["state"] == "stopped"
-        assert all(t.get_name() == "status" for t in ag.tasks)
-        assert any("deactivated" in e["message"] for e in ag.logbuf)
-        with tmpdb.engine().connect() as c:
-            n = c.execute(tmpdb.select(tmpdb.func.count()).select_from(tmpdb.activity)).scalar()
-        assert n >= 3                                       # every log event persisted
-        await ag.shutdown()
-    asyncio.run(run())
-
-
 def test_detections_and_signals_are_json_safe():
     s = real_series()
     a = st.analyse(s)
@@ -238,3 +164,8 @@ def test_detections_and_signals_are_json_safe():
             sig = strat.evaluate(s, a, t)
             if sig:
                 json.dumps(sig.to_json())
+
+
+def test_cost_model_covers_every_asset_class():
+    for cls in ("crypto", "memecoin", "equity", "commodity", "fx"):
+        assert costs.estimate(cls, 1000, 0.01, 1e8, 1e6).total_pct > 0

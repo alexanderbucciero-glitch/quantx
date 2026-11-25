@@ -14,7 +14,10 @@ from ..core.config import settings
 from ..core.http import UpstreamError
 from ..market import feeds
 from ..market.candles import TF_SECONDS, Series
-from ..paper import engine as paper
+from ..paper import settings as paper_settings
+from ..paper.broker import BrokerError, Quote
+from ..trading import reports
+from ..trading.replay import manager as replay_manager
 from ..quant import backtest
 from ..quant.probability import ProbabilityModel
 from ..strategies.library import BY_NAME, RESEARCH_ONLY, STRATEGIES
@@ -73,15 +76,16 @@ async def agent_assets():
 
 
 @router.get("/agent/opportunities")
-async def agent_opportunities(limit: int = Query(100, le=500), status: str | None = None):
+async def agent_opportunities(limit: int = Query(100, le=500), status: str | None = None, account: str = "live"):
     q = db.select(db.opportunities.c.id, db.opportunities.c.ts, db.opportunities.c.asset, db.opportunities.c.asset_class,
                   db.opportunities.c.strategy, db.opportunities.c.direction, db.opportunities.c.status,
-                  db.opportunities.c.reason).order_by(db.opportunities.c.id.desc()).limit(limit)
+                  db.opportunities.c.reason).where(db.opportunities.c.account == account).order_by(db.opportunities.c.id.desc()).limit(limit)
     if status:
         q = q.where(db.opportunities.c.status == status)
     with db.engine().connect() as c:
         rows = [dict(r._mapping) for r in c.execute(q)]
-        counts = dict(c.execute(db.select(db.opportunities.c.status, db.func.count()).group_by(db.opportunities.c.status)).all())
+        counts = dict(c.execute(db.select(db.opportunities.c.status, db.func.count()).where(db.opportunities.c.account == account)
+                                .group_by(db.opportunities.c.status)).all())
     return {"opportunities": rows, "counts": counts}
 
 
@@ -141,14 +145,17 @@ async def structure(symbol: str = "BTC-USD", tf: str = "15m", asset_class: str =
     t = len(s) - 1
     setups = []
     cfg = CLASS_CFG.get(asset_class, CLASS_CFG["crypto"])
-    st = paper.get_settings()
+    st = paper_settings.get_settings()
     for strat in STRATEGIES:
         sig = strat.evaluate(s, a, t)
         if not sig:
             continue
         plan, ce = backtest.plan_for(s, a, sig, 1000.0, cfg["max_hold"], targets=st["targets_pct"],
-                                     cost_overrides={"fee_pct": st["fees"].get(asset_class, 0.4)})
-        setups.append({"signal": sig.to_json(), "plan": None if hasattr(plan, "reason") else plan.to_json(),
+                                     fees=st["fees"].get(asset_class, st["fees"]["crypto"]), trail_atr=strat.trail_atr,
+                                     min_rr=st["min_rr"])
+        tier = agent.selector.tier(sig.strategy, asset_class, tf, sig.direction)
+        setups.append({"signal": sig.to_json(), "tier": {"tier": tier[0], "reason": tier[1]},
+                       "plan": None if hasattr(plan, "reason") else (plan if isinstance(plan, dict) else plan.to_json()),
                        "rejection": {"reason": plan.reason, "detail": plan.detail} if hasattr(plan, "reason") else None,
                        "regime": backtest.regime_of(s, a, t, sig.direction),
                        "probability": agent.model.estimate(sig.strategy, asset_class, backtest.regime_of(s, a, t, sig.direction)) if agent.model else None})
@@ -228,6 +235,7 @@ class BacktestReq(BaseModel):
     max_hold_bars: int | None = None
     starting_balance: float = 10_000.0
     risk_per_trade_pct: float = 0.5
+    entry_order: str = "limit"
 
 
 @router.post("/backtest")
@@ -244,10 +252,14 @@ async def run_backtest(req: BacktestReq):
     s = Series.from_candles(req.symbol, req.asset_class, req.tf, "backtest", cs)
     strats = [BY_NAME[n] for n in (req.strategies or [x.name for x in STRATEGIES]) if n in BY_NAME]
     max_hold = req.max_hold_bars or CLASS_CFG.get(req.asset_class, CLASS_CFG["crypto"])["max_hold"]
-    import app.quant.costs as cm
-    fee = req.fee_pct if req.fee_pct is not None else cm.DEFAULTS[req.asset_class]["fee_pct"]
+    st = paper_settings.get_settings()
+    fees = st["fees"].get(req.asset_class, st["fees"]["crypto"])
+    if req.fee_pct is not None:
+        fees = {"maker": req.fee_pct, "taker": req.fee_pct}
+    fee = fees
     t0 = time.perf_counter()
-    trades, rejected = await asyncio.to_thread(backtest.run, s, strats, max_hold, 1000.0, None, req.targets_pct, 60, {"fee_pct": fee})
+    trades, rejected = await asyncio.to_thread(backtest.run, s, strats, max_hold, 1000.0, None, req.targets_pct, 60, None, fees,
+                                               req.entry_order, 2)
     ms = (time.perf_counter() - t0) * 1000
     trades.sort(key=lambda x: x.entry_time)
     # equity simulation with fixed fractional risk
@@ -290,60 +302,109 @@ async def run_backtest(req: BacktestReq):
         "equity_curve": curve, "trades": [x.to_json() for x in trades[-300:]],
         "candles": s.to_json(len(s)),
         "assumptions": {"fill": "next bar open after signal close", "same_bar_stop_and_target": "stop assumed first",
-                        "partial": "50% at TP1, stop to break-even", "fees_pct_per_side": fee,
+                        "partial": "50% at TP1, stop to break-even", "fees_pct_per_side": fee, "entry_order": req.entry_order,
                         "survivorship": "single asset chosen today; delisted assets not included"},
     }
 
 
-# ------------------------------------------------------------------ paper trading
+# ------------------------------------------------------------------ agent controls
+@router.post("/agent/emergency-stop")
+async def agent_emergency_stop():
+    return await agent.emergency_stop()
+
+
+# ------------------------------------------------------------------ paper trading (broker-backed)
+def _broker(account: str):
+    from ..paper.broker import Broker
+    if account == "live":
+        return agent.broker
+    if not db.rows(db.select(db.cash.c.account).where(db.cash.c.account == account)):
+        raise HTTPException(404, {"error": f"unknown account {account}"})
+    return Broker(account)
+
+
+@router.get("/paper/accounts")
+async def paper_accounts():
+    rows = db.rows(db.select(db.cash))
+    return {"accounts": [{**r, "kind": "live paper trading" if r["account"] == "live" else "historical replay"} for r in rows]}
+
+
 @router.get("/paper/portfolio")
-async def paper_portfolio():
-    return paper.metrics()
+async def paper_portfolio(account: str = "live"):
+    b = _broker(account)
+    s = b.state()
+    closed = b.positions("closed")
+    pnl = [p["realized_pnl"] for p in closed]
+    wins, losses = [x for x in pnl if x > 0], [x for x in pnl if x <= 0]
+    eq = db.rows(db.text("SELECT ts, equity FROM equity WHERE account=:a ORDER BY ts"), {"a": account})
+    peak, mdd = None, 0.0
+    for e in eq:
+        peak = e["equity"] if peak is None else max(peak, e["equity"])
+        mdd = min(mdd, e["equity"] / peak - 1)
+    now = eq[-1]["ts"] if eq and account != "live" else time.time()
+    day_ref = next((e["equity"] for e in eq if e["ts"] >= now - 86400), None)
+    by = {}
+    for p in closed:
+        b_ = by.setdefault(p["strategy"], {"trades": 0, "wins": 0, "pnl": 0.0})
+        b_["trades"] += 1
+        b_["wins"] += int(p["realized_pnl"] > 0)
+        b_["pnl"] += p["realized_pnl"]
+    stride = max(1, len(eq) // 1500)
+    return plain({**s, "total_return_pct": 100 * (s["equity"] / s["starting_balance"] - 1),
+                  "daily_return_pct": 100 * (s["equity"] / day_ref - 1) if day_ref else None,
+                  "realized_closed": sum(pnl), "closed_trades": len(closed),
+                  "win_rate": len(wins) / len(closed) if closed else None,
+                  "profit_factor": (sum(wins) / -sum(losses)) if losses and sum(losses) < 0 else None,
+                  "avg_win": sum(wins) / len(wins) if wins else None, "avg_loss": sum(losses) / len(losses) if losses else None,
+                  "max_drawdown_pct": 100 * mdd if eq else None,
+                  "avg_holding_s": (sum(p["closed_at"] - p["opened_at"] for p in closed) / len(closed)) if closed else None,
+                  "by_strategy": by, "equity_curve": eq[::stride], "settings": paper_settings.get_settings(),
+                  "entries_suspended": None if account != "live" else agent.status()["entries_suspended"]})
 
 
 @router.get("/paper/history")
-async def paper_history(limit: int = Query(200, le=1000)):
-    return paper.history(limit)
+async def paper_history(account: str = "live", limit: int = Query(200, le=2000)):
+    b = _broker(account)
+    closed = db.rows(db.select(db.positions).where(db.positions.c.account == account, db.positions.c.status == "closed")
+                     .order_by(db.positions.c.closed_at.desc()).limit(limit))
+    return plain({"open": b.positions("open"), "pending": b.positions("pending"), "closed": closed,
+                  "orders": db.rows(db.select(db.orders).where(db.orders.c.account == account).order_by(db.orders.c.id.desc()).limit(limit))})
+
+
+@router.get("/paper/activity")
+async def paper_activity(account: str = "live", limit: int = Query(200, le=2000)):
+    """Every executed BUY / SELL with price, quantity, strategy and reason (from the fills ledger)."""
+    return plain({"fills": db.rows(db.select(db.fills).where(db.fills.c.account == account).order_by(db.fills.c.ts.desc()).limit(limit))})
 
 
 @router.get("/paper/settings")
-async def paper_settings():
-    return paper.get_settings()
+async def paper_settings_get():
+    return paper_settings.get_settings()
 
 
 @router.put("/paper/settings")
 async def paper_settings_update(patch: dict):
     try:
-        return paper.update_settings(patch)
+        return paper_settings.update_settings(patch)
     except ValueError as e:
         raise _bad(e)
 
 
 @router.post("/paper/positions/{pid}/close")
 async def paper_close(pid: int):
-    with db.engine().connect() as c:
-        r = c.execute(db.select(db.positions).where(db.positions.c.id == pid)).first()
-    if not r:
+    rows = db.rows(db.select(db.positions).where(db.positions.c.id == pid, db.positions.c.account == "live"))
+    if not rows:
         raise HTTPException(404, {"error": "not found"})
-    p = dict(r._mapping)
-    a = agent.assets.get(p["asset"])
-    q = agent._quote(a) if a else None
+    p = rows[0]
+    q = (await agent._fresh_quotes()).get(p["asset"])
     if q is None:
-        try:
-            if p["asset_class"] == "crypto":
-                tk = await feeds.coinbase_ticker(p["asset"])
-                q = paper.Quote(tk["bid"], tk["ask"], tk["price"], time.time())
-            else:
-                cs = await feeds.gecko_pool_candles(p["asset"], "1m", 2)
-                q = paper.Quote(cs[-1].c, cs[-1].c, cs[-1].c, time.time())
-        except (UpstreamError, IndexError) as e:
-            raise HTTPException(502, {"error": f"no live price to close at: {e}"})
+        raise HTTPException(502, {"error": "no live price available to close at"})
     try:
-        ev = paper.close_manually(pid, q)
-    except ValueError as e:
+        ev = agent.broker.close_position(pid, q, "manual", "closed manually by user")
+    except BrokerError as e:
         raise _bad(e)
-    await agent.emit(f"SIMULATED manual close: {p['asset']} @ {ev['price']:.6g}, P&L {ev['pnl']:+.2f} USD", "trade", asset=p["asset"], data=ev)
-    return ev
+    await agent.desk._after_fill(ev)
+    return plain(ev)
 
 
 class ResetReq(BaseModel):
@@ -353,9 +414,93 @@ class ResetReq(BaseModel):
 @router.post("/paper/reset")
 async def paper_reset(req: ResetReq):
     if req.confirm != "RESET":
-        raise HTTPException(400, {"error": "send {\"confirm\": \"RESET\"} to delete all simulated positions"})
-    if paper.open_positions():
-        raise HTTPException(400, {"error": "close open simulated positions first"})
-    paper.reset_account()
-    await agent.emit("Simulated account reset by user", "system")
+        raise HTTPException(400, {"error": "send {\"confirm\": \"RESET\"} to delete the live simulated account"})
+    if agent.broker.positions("open") or agent.active:
+        raise HTTPException(400, {"error": "deactivate the agent and close open simulated positions first"})
+    with db.engine().begin() as c:
+        for t in (db.fills, db.orders, db.positions, db.equity, db.reports):
+            c.execute(db.delete(t).where(t.c.account == "live"))
+        c.execute(db.delete(db.cash).where(db.cash.c.account == "live"))
+    agent.broker.ensure_account()
+    await agent.emit("Live simulated account reset by user", "system")
     return {"ok": True}
+
+
+# ------------------------------------------------------------------ reports
+@router.get("/reports")
+async def reports_list(account: str = "live", kind: str | None = None, limit: int = Query(100, le=1000)):
+    return plain({"reports": reports.list_reports(account, kind, limit)})
+
+
+@router.get("/reports/{rid}")
+async def report_get(rid: int):
+    r = reports.get_report(rid)
+    if not r:
+        raise HTTPException(404, {"error": "not found"})
+    return plain(r)
+
+
+class GenReq(BaseModel):
+    kind: str = "daily"
+    account: str = "live"
+
+
+@router.post("/reports/generate")
+async def report_generate(req: GenReq):
+    if req.kind not in ("daily", "weekly", "monthly"):
+        raise HTTPException(400, {"error": "kind must be daily, weekly or monthly"})
+    events = [{"title": n["title"], "source": n["source"], "url": n["url"]} for n in agent.news if n.get("primary_source") or n.get("assets")][:10]
+    ref = None
+    if req.account != "live":
+        last = db.rows(db.text("SELECT MAX(ts) AS t FROM equity WHERE account=:a"), {"a": req.account})[0]["t"]
+        ref = (last or time.time()) - 1
+    return plain(reports.period_report(req.account, req.kind, ref, events if req.account == "live" else None))
+
+
+# ------------------------------------------------------------------ evidence / self-improvement
+@router.get("/strategies/evidence")
+async def strategies_evidence(account: str = "live"):
+    from ..quant.selector import Selector
+    sel = agent.selector if account == "live" else Selector(account)
+    changes = db.rows(db.select(db.strategy_changes).where(db.strategy_changes.c.account == account)
+                      .order_by(db.strategy_changes.c.ts.desc()).limit(100))
+    return plain({**sel.summary(), "changes": changes,
+                  "rules": {"active": "backtest 90% CI of mean net return entirely above 0 (n ≥ 30) and recent half positive",
+                            "exploration": "unproven: 90% CI includes 0, n ≥ 10, recent half not negative — traded at small size",
+                            "disabled": "90% CI below 0, recent half negative, or too few samples",
+                            "live_demote": "≥ 10 live trades with 90% CI upper bound < 0",
+                            "live_promote": "≥ 20 live trades with 90% CI lower bound > 0"}})
+
+
+# ------------------------------------------------------------------ historical replay
+class ReplayReq(BaseModel):
+    tf: str = "1h"
+    bars: int = 2400
+    calib_frac: float = 0.6
+
+
+@router.post("/replay")
+async def replay_start(req: ReplayReq):
+    if req.tf not in ("15m", "1h", "1d"):
+        raise HTTPException(400, {"error": "tf must be 15m, 1h or 1d"})
+    if not 0.3 <= req.calib_frac <= 0.8:
+        raise HTTPException(400, {"error": "calib_frac must be between 0.3 and 0.8"})
+    try:
+        st = replay_manager.start(req.tf, min(req.bars, 3000), req.calib_frac)
+    except RuntimeError as e:
+        raise HTTPException(409, {"error": str(e)})
+    return {"id": st.id, "account": st.account, "status": st.status}
+
+
+@router.get("/replay")
+async def replay_list():
+    runs = {r.id: {"id": r.id, "account": r.account, "status": r.status, "progress": r.progress, "message": r.message,
+                   "started_at": r.started_at, "finished_at": r.finished_at, "error": r.error, "result": r.result}
+            for r in replay_manager.runs.values()}
+    n = db.kv_get("replay_counter") or 0
+    for i in range(1, n + 1):
+        if i not in runs:
+            saved = db.kv_get(f"replay:{i}")
+            if saved:
+                runs[i] = {**saved, "progress": 1.0, "message": ""}
+    return plain({"runs": sorted(runs.values(), key=lambda r: -r["id"])})

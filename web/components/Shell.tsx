@@ -2,28 +2,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState, type ReactNode } from "react";
-import { STATE_KIND, STATE_LABEL, useAgent } from "@/lib/agent";
-
-function AgentControl() {
-  const { status, busy, activate, deactivate, error } = useAgent();
-  const active = !!status?.active;
-  const state = status?.state ?? "offline";
-  const kind = STATE_KIND[state] ?? "neutral";
-  const dot = { up: "bg-up", down: "bg-down", warn: "bg-warn", info: "bg-info", neutral: "bg-dim", amber: "bg-amber" }[kind];
-  return (
-    <div className="flex items-center gap-2 min-w-0">
-      <Link href="/agent" className="hidden sm:flex items-center gap-1.5 text-2xs text-mute hover:text-text min-w-0" title={status?.current.task ?? ""}>
-        <span className={`w-1.5 h-1.5 rounded-full ${dot} ${active && state !== "error" ? "animate-pulse" : ""}`} />
-        <span className="truncate max-w-[180px]">{error && !status ? "Backend offline" : STATE_LABEL[state] ?? state}</span>
-      </Link>
-      <button onClick={active ? deactivate : activate} disabled={busy || (!status && !!error)}
-        className={`h-7 px-3 rounded-[3px] text-[11.5px] font-semibold tracking-[0.12em] num border transition-colors disabled:opacity-50 ${
-          active ? "border-down/60 text-down hover:bg-down/10" : "border-amber bg-amber text-ink hover:brightness-110"}`}>
-        {busy ? "…" : active ? "DEACTIVATE AI" : "ACTIVATE AI"}
-      </button>
-    </div>
-  );
-}
+import { AgentControl } from "./AgentControl";
 
 export const NAV: { href: string; label: string; code: string; group: string; stage?: number }[] = [
   { href: "/", label: "Dashboard", code: "DASH", group: "Overview" },
@@ -41,6 +20,7 @@ export const NAV: { href: string; label: string; code: string; group: string; st
   { href: "/backtest", label: "Backtesting Lab", code: "BTST", group: "Research" },
   { href: "/portfolio", label: "Paper Portfolio", code: "PAPR", group: "Research" },
   { href: "/history", label: "Historical Database", code: "HIST", group: "System" },
+  { href: "/reports", label: "Reports", code: "RPTS", group: "Research" },
   { href: "/models", label: "Model Performance", code: "MODL", group: "System" },
   { href: "/settings", label: "Integrations", code: "INTG", group: "System" },
 ];

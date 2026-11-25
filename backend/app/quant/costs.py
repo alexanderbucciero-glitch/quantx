@@ -12,6 +12,8 @@ DEFAULTS = {
     "crypto":   {"fee_pct": 0.40, "base_slippage_pct": 0.02, "min_volume_24h_usd": 5_000_000, "max_spread_pct": 0.25},
     "memecoin": {"fee_pct": 0.30, "base_slippage_pct": 0.10, "min_liquidity_usd": 100_000, "max_spread_pct": 1.0},
     "equity":   {"fee_pct": 0.01, "base_slippage_pct": 0.02, "min_volume_24h_usd": 20_000_000, "max_spread_pct": 0.10},
+    "commodity": {"fee_pct": 0.40, "base_slippage_pct": 0.03, "min_volume_24h_usd": 2_000_000, "max_spread_pct": 0.25},
+    "fx":       {"fee_pct": 0.40, "base_slippage_pct": 0.005, "min_volume_24h_usd": 0, "max_spread_pct": 0.05},
 }
 
 

@@ -176,3 +176,43 @@ async def gecko_pools(kind: str = "trending_pools") -> list[dict]:
             "created_at": a.get("pool_created_at"),
         })
     return out
+
+
+# ------------------------------------------------------------------ Kraken (forex, gold tokens, crypto)
+KR = "https://api.kraken.com/0/public"
+KR_TF = {"1m": 1, "5m": 5, "15m": 15, "1h": 60, "6h": 240, "1d": 1440}   # Kraken has 4h not 6h: 6h maps to 4h bars
+KR_TF_REAL = {"6h": "4h"}
+
+
+async def kraken_pairs() -> dict[str, dict]:
+    """wsname (e.g. 'EUR/USD') -> {altname, base, quote}."""
+    raw, _ = await hub.get("kraken", f"{KR}/AssetPairs", ttl=86400)
+    if raw.get("error"):
+        raise UpstreamError("kraken", "; ".join(raw["error"]))
+    return {v["wsname"]: {"altname": v["altname"], "key": k} for k, v in raw["result"].items() if v.get("wsname")}
+
+
+async def kraken_candles(altname: str, tf: str) -> list[Candle]:
+    """Up to 720 most recent candles (Kraken limit). The last row is the still-forming candle."""
+    raw, _ = await hub.get("kraken", f"{KR}/OHLC", params={"pair": altname, "interval": KR_TF[tf]}, ttl=20)
+    if raw.get("error"):
+        raise UpstreamError("kraken", "; ".join(raw["error"]))
+    rows = next(v for k, v in raw["result"].items() if k != "last")
+    # [time, open, high, low, close, vwap, volume, count]
+    return [Candle(int(r[0]), float(r[1]), float(r[2]), float(r[3]), float(r[4]), float(r[6])) for r in rows]
+
+
+async def kraken_tickers(altnames: list[str]) -> dict[str, dict]:
+    if not altnames:
+        return {}
+    raw, fetched = await hub.get("kraken", f"{KR}/Ticker", params={"pair": ",".join(altnames)}, ttl=5)
+    if raw.get("error"):
+        raise UpstreamError("kraken", "; ".join(raw["error"]))
+    out = {}
+    pairs = await kraken_pairs()
+    key_to_alt = {v["key"]: v["altname"] for v in pairs.values()}
+    for k, t in raw["result"].items():
+        alt = key_to_alt.get(k, k)
+        out[alt] = {"bid": float(t["b"][0]), "ask": float(t["a"][0]), "price": float(t["c"][0]),
+                    "volume_24h": float(t["v"][1]), "vwap_24h": float(t["p"][1]), "fetched_at": fetched}
+    return out

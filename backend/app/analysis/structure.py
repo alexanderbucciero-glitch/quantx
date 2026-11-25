@@ -125,7 +125,7 @@ def plain(v):
         v = v.item()
     if isinstance(v, np.ndarray):
         return [plain(x) for x in v.tolist()]
-    if isinstance(v, float) and v != v:
+    if isinstance(v, float) and (v != v or v in (float("inf"), float("-inf"))):
         return None
     return v
 
@@ -418,8 +418,19 @@ class Analysis:
     ema50: np.ndarray = None
     sma20: np.ndarray = None
     std20: np.ndarray = None
+    macd: np.ndarray = None          # EMA12 − EMA26
+    macd_signal: np.ndarray = None   # EMA9 of MACD
+    macd_hist: np.ndarray = None
 
     _by_i: dict | None = None
+
+    @property
+    def bb_upper(self) -> np.ndarray:
+        return self.sma20 + 2 * self.std20
+
+    @property
+    def bb_lower(self) -> np.ndarray:
+        return self.sma20 - 2 * self.std20
 
     def at(self, i: int) -> list[Detection]:
         """Detections created at bar i (index built once)."""
@@ -446,8 +457,19 @@ def analyse(s: Series, swing_k: int = 3) -> Analysis:
     det += volume_and_volatility(s, start=max(0, len(s) - 200))
     det += divergences(s, swings)
     det.sort(key=lambda d: d.i)
+    m, sig, hist = macd(s.c)
     return Analysis(swings, events, trend, det, liquidity_pools(s, swings), atr(s), rsi(s.c), rel_volume(s.v),
-                    ema(s.c, 20), ema(s.c, 50), sma(s.c, 20), rolling_std(s.c, 20))
+                    ema(s.c, 20), ema(s.c, 50), sma(s.c, 20), rolling_std(s.c, 20), m, sig, hist)
+
+
+def macd(x: np.ndarray, fast: int = 12, slow: int = 26, signal: int = 9) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    m = ema(x, fast) - ema(x, slow)
+    sig = np.full(x.size, np.nan)
+    valid = ~np.isnan(m)
+    if valid.sum() >= signal:
+        start = int(np.argmax(valid))
+        sig[start:] = ema(m[start:], signal)
+    return m, sig, m - sig
 
 
 def market_structure_label(swings: list[Swing], last: int = 4) -> str:

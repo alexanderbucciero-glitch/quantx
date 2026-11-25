@@ -4,6 +4,7 @@ import { fmtNum, fmtPct, tone } from "@/lib/format";
 import { CandleChart, type ChartMarker } from "@/components/Chart";
 import { EquityChart } from "@/components/EquityChart";
 import { Empty, ErrorBox, Loading, PageHead, Panel, Pill, Stat } from "@/components/ui";
+import { useApi } from "@/lib/api";
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 const STRATS = [["momentum", "Momentum"], ["mean_reversion", "Mean reversion"], ["liquidity", "Liquidity sweep"], ["breakout", "Breakout"], ["volume", "Volume surge"]];
@@ -18,6 +19,45 @@ function outcome(t: any) {
   if (t.hit_tp2) return "TP1+TP2";
   if (t.hit_tp1) return t.stopped ? "TP1 then BE" : "TP1 then time";
   return t.stopped ? "Stopped" : "Time exit";
+}
+
+function Replay() {
+  const runs = useApi<any>("/api/replay", 4000);
+  const [cfg, setCfg] = useState({ tf: "1h", bars: 2400, calib_frac: 0.6 });
+  const [err, setErr] = useState<string | null>(null);
+  const start = async () => {
+    setErr(null);
+    const r = await fetch("/api/replay", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(cfg) });
+    const j = await r.json();
+    if (!r.ok) setErr(j.detail?.error ?? "Could not start"); else runs.reload();
+  };
+  const list = runs.data?.runs ?? [];
+  return (
+    <Panel title="Historical replay of the autonomous desk">
+      <div className="p-3 grid gap-3 text-xs">
+        <p className="text-mute">Runs the real trading desk and paper broker over real history: evidence is calibrated on the first part only, then the rest is replayed candle by candle with a simulated clock. Every decision, order, fill and report is recorded in its own replay account, separate from live paper trading. The 11 assets are 10 large cryptocurrencies plus gold (PAXG).</p>
+        <div className="flex flex-wrap gap-3 items-end">
+          <label className="grid gap-1 text-2xs text-mute"><span>Timeframe</span><select id="rp-tf" value={cfg.tf} onChange={e => setCfg({ ...cfg, tf: e.target.value })} className="h-7 bg-raised border border-line rounded-[2px] px-1 text-xs">{["15m", "1h", "1d"].map(x => <option key={x}>{x}</option>)}</select></label>
+          <label className="grid gap-1 text-2xs text-mute"><span>Bars per asset</span><input id="rp-bars" type="number" value={cfg.bars} onChange={e => setCfg({ ...cfg, bars: Number(e.target.value) })} className="h-7 w-24 bg-raised border border-line rounded-[2px] px-2 num text-xs" /></label>
+          <label className="grid gap-1 text-2xs text-mute"><span>Calibration share</span><input id="rp-cal" type="number" step="0.05" value={cfg.calib_frac} onChange={e => setCfg({ ...cfg, calib_frac: Number(e.target.value) })} className="h-7 w-20 bg-raised border border-line rounded-[2px] px-2 num text-xs" /></label>
+          <button onClick={start} className="h-7 px-3 rounded-[2px] bg-amber text-ink font-semibold">Start replay</button>
+          {err && <span className="text-down">{err}</span>}
+        </div>
+        {list.length > 0 && (
+          <div className="overflow-x-auto"><table className="grid-t">
+            <thead><tr><th>Run</th><th>Status</th><th>Progress</th><th className="r">Trades</th><th className="r">W / L</th><th className="r">Final equity</th><th className="r">Net realised</th><th>Results</th></tr></thead>
+            <tbody>{list.map((r: any) => (
+              <tr key={r.id}><td>{r.account}</td><td><Pill kind={r.status === "finished" ? "up" : r.status === "error" ? "down" : "info"}>{r.status}</Pill></td>
+                <td className="text-mute !whitespace-normal min-w-[200px]">{r.status === "finished" ? "done" : r.error ?? `${Math.round((r.progress ?? 0) * 100)}% · ${r.message}`}</td>
+                <td className="r num">{r.result?.closed_trades ?? "—"}</td><td className="r num">{r.result ? `${r.result.winning} / ${r.result.losing}` : "—"}</td>
+                <td className="r num">{r.result ? `$${fmtNum(r.result.final.equity)}` : "—"}</td>
+                <td className={`r num ${tone(r.result?.net_realized)}`}>{r.result ? `$${fmtNum(r.result.net_realized)}` : "—"}</td>
+                <td className="whitespace-nowrap">{r.status === "finished" && <><a className="text-amber hover:underline mr-2" href={`/portfolio?account=${r.account}`}>portfolio</a><a className="text-amber hover:underline" href={`/reports?account=${r.account}`}>reports</a></>}</td></tr>))}</tbody>
+          </table></div>
+        )}
+      </div>
+    </Panel>
+  );
 }
 
 export default function Backtest() {
@@ -51,7 +91,8 @@ export default function Backtest() {
     <>
       <PageHead title="Backtesting Laboratory" sub="Replays real Coinbase candles bar by bar. Signals fire on closed candles, fills happen at the next open, a stop is assumed to fill before a target when both are hit in the same bar, and fees and slippage are deducted." />
       <div className="grid gap-3">
-        <Panel title="Configuration">
+        <Replay />
+        <Panel title="Strategy backtest · configuration">
           <div className="p-3 grid gap-3">
             <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-3">
               {input("symbol", "Asset (Coinbase product)", "text")}

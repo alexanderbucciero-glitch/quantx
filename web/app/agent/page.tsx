@@ -2,7 +2,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useApi } from "@/lib/api";
-import { STATE_KIND, STATE_LABEL, useAgent, type AgentEvent } from "@/lib/agent";
+import { MODE_LABEL, STATE_KIND, STATE_LABEL, useAgent, type AgentEvent } from "@/lib/agent";
+import { AgentControl } from "@/components/AgentControl";
 import { fmtCompact, fmtNum, fmtPrice } from "@/lib/format";
 import { ReportDrawer } from "@/components/Report";
 import { Empty, ErrorBox, Loading, PageHead, Panel, Pill, Stat } from "@/components/ui";
@@ -12,7 +13,7 @@ type AssetRow = { symbol: string; display: string; asset_class: string; tf: stri
   analysis: { trend: string; structure: string; atr_pct: number | null; rel_volume: number | null } | null; bars: number; quote_age_s: number | null; is_pump_fun?: boolean };
 type Opp = { id: number; ts: number; asset: string; asset_class: string; strategy: string; direction: string; status: string; reason: string | null };
 
-const KIND_COLOR: Record<string, string> = { trade: "text-amber", decision: "text-text", pattern: "text-info", strategy: "text-text/80",
+const KIND_COLOR: Record<string, string> = { report: "text-up", learning: "text-info", trade: "text-amber", decision: "text-text", pattern: "text-info", strategy: "text-text/80",
   validation: "text-up", news: "text-mute", data: "text-mute", analysis: "text-mute", scan: "text-mute", system: "text-amber", error: "text-down", latency: "text-dim" };
 
 function LogLine({ e }: { e: AgentEvent }) {
@@ -49,7 +50,7 @@ function LiveLog() {
 }
 
 export default function AgentPage() {
-  const { status, connected, error, activate, deactivate, busy } = useAgent();
+  const { status, connected, error } = useAgent();
   const assets = useApi<{ assets: AssetRow[] }>("/api/agent/assets", 10_000);
   const opps = useApi<{ opportunities: Opp[]; counts: Record<string, number> }>("/api/agent/opportunities?limit=40", 10_000);
   const [report, setReport] = useState<number | null>(null);
@@ -58,16 +59,14 @@ export default function AgentPage() {
   const state = status?.state ?? "offline";
   return (
     <>
-      <PageHead title="AI Agent" sub="Scans high-volume crypto and Solana pools, analyses every newly closed candle, runs five strategies, and opens simulated positions only when every decision gate passes."
+      <PageHead title="AI Agent" sub="The autonomous desk runs in the backend: it scans crypto, gold, forex and Solana pools, decides on every closed candle, executes simulated orders, manages exits and writes reports, with no approval needed for individual trades."
         right={<span className="text-2xs text-dim">{connected ? "Live (WebSocket)" : error ? error : "Polling"}</span>} />
       <div className="grid gap-3">
         <Panel bodyClass="p-3 grid gap-4 lg:grid-cols-[260px_1fr]">
           <div className="flex flex-col gap-3">
             <div className="flex items-center gap-2"><Pill kind={STATE_KIND[state]}>{STATE_LABEL[state] ?? state}</Pill>{status?.active && <span className="text-2xs text-dim">since {status.started_at ? new Date(status.started_at * 1000).toLocaleTimeString() : "—"}</span>}</div>
-            <button onClick={status?.active ? deactivate : activate} disabled={busy || !status}
-              className={`h-11 rounded-[3px] text-[13px] font-semibold tracking-[0.18em] num border disabled:opacity-50 ${status?.active ? "border-down/60 text-down hover:bg-down/10" : "border-amber bg-amber text-ink hover:brightness-110"}`}>
-              {busy ? "WORKING…" : status?.active ? "DEACTIVATE AI" : "ACTIVATE AI"}
-            </button>
+            <AgentControl big />
+            <div className="text-2xs text-dim">{MODE_LABEL[status?.mode ?? "off"]}{status?.entries_suspended ? ` · entries suspended: ${status.entries_suspended}` : ""}</div>
             <div className="text-xs leading-relaxed">
               <div className="label">Current task</div><div className="text-text">{status?.current.task ?? "—"}</div>
               <div className="flex gap-4 mt-1 text-mute"><span>Asset: <span className="text-text">{status?.current.asset ?? "—"}</span></span><span>Strategy: <span className="text-text">{status?.current.strategy ?? "—"}</span></span></div>
@@ -75,11 +74,11 @@ export default function AgentPage() {
           </div>
           <div className="grid grid-cols-2 sm:grid-cols-4 xl:grid-cols-8 gap-x-4 gap-y-3 content-start">
             <Stat label="Assets scanned" value={status?.assets.total ?? "—"} sub={`${status?.assets.eligible ?? 0} tradeable`} />
-            <Stat label="Candles analysed" value={c.assets_analysed ?? 0} sub={`${c.strategy_evaluations ?? 0} strategy runs`} />
-            <Stat label="Patterns" value={c.patterns_detected ?? 0} />
-            <Stat label="Setups detected" value={c.opportunities_detected ?? 0} />
-            <Stat label="Rejected" value={c.opportunities_rejected ?? 0} valueClass="text-warn" />
-            <Stat label="Simulated positions" value={status?.positions_open ?? 0} sub={`${c.positions_opened ?? 0} opened total`} />
+            <Stat label="Candles analysed" value={c.candles_analysed ?? 0} sub={`${c.calibrations ?? 0} calibration run(s)`} />
+            <Stat label="Opportunities" value={c.opportunities_identified ?? 0} />
+            <Stat label="Rejected (no trade)" value={c.opportunities_rejected ?? 0} valueClass="text-warn" />
+            <Stat label="Trades executed" value={c.trades_executed ?? 0} sub={`${c.exits ?? 0} exits · ${c.closed_trades ?? 0} closed`} />
+            <Stat label="Open positions" value={status?.positions_open ?? 0} sub={`equity $${(status?.account?.equity ?? 0).toFixed(2)}`} />
             <Stat label="Analysis latency" value={lat.analysis_ms?.avg != null ? `${lat.analysis_ms.avg} ms` : "—"} sub={lat.analysis_ms?.p95 != null ? `p95 ${lat.analysis_ms.p95} ms` : "per asset"} />
             <Stat label="Candle close → decision" value={lat.candle_to_decision_ms?.avg != null ? `${(lat.candle_to_decision_ms.avg / 1000).toFixed(1)} s` : "—"} sub={`tick ${lat.tick_ms?.avg ?? "—"} ms · ${status?.stream.messages ?? 0} ticks`} />
             <div className="col-span-2 sm:col-span-4 xl:col-span-8">
@@ -130,6 +129,11 @@ export default function AgentPage() {
             </table></div>
           )}
         </Panel>
+        {status?.data_coverage && (
+          <Panel title="Market coverage and data quality">
+            <ul className="p-3 text-xs text-mute grid md:grid-cols-2 gap-x-6 gap-y-1">{Object.entries(status.data_coverage).map(([k, v]) => <li key={k}><span className="text-text">{k}</span>: {v}</li>)}</ul>
+          </Panel>
+        )}
         {status?.research_only && (
           <Panel title="Strategies not yet simulated">
             <ul className="p-3 text-xs text-mute space-y-1">{Object.entries(status.research_only).map(([k, v]) => <li key={k}><span className="text-text">{k}</span>: {v}</li>)}</ul>

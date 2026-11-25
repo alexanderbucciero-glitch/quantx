@@ -2,8 +2,14 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from "react";
 
 export type AgentEvent = { ts: number; level: string; kind: string; asset: string | null; strategy: string | null; message: string; latency_ms: number | null; data?: unknown };
+export type Account = { starting_balance: number; cash: number; equity: number; unrealized: number; realized: number; fees_paid: number;
+  exposure: number; available: number; open_positions: number; peak_equity: number };
 export type AgentStatus = {
-  state: string; active: boolean; current: { task: string | null; asset: string | null; strategy: string | null };
+  state: string; active: boolean; mode: string; entries_enabled: boolean;
+  current: { task: string | null; asset: string | null; strategy: string | null };
+  last_decision: { ts: number; asset: string; strategy?: string; decision: string; reason: string } | null;
+  account: Account; entries_suspended: string | null; tiers: Record<string, number>;
+  data_coverage: Record<string, string>;
   started_at: number | null; counters: Record<string, number>;
   assets: { total: number; eligible: number; by_class: Record<string, number> };
   positions_open: number;
@@ -15,7 +21,7 @@ export type AgentStatus = {
 
 type Ctx = {
   status: AgentStatus | null; events: AgentEvent[]; connected: boolean; busy: boolean; error: string | null;
-  activate: () => Promise<void>; deactivate: () => Promise<void>;
+  activate: () => Promise<void>; deactivate: () => Promise<void>; emergencyStop: () => Promise<void>;
 };
 const AgentCtx = createContext<Ctx | null>(null);
 
@@ -78,7 +84,8 @@ export function AgentProvider({ children }: { children: ReactNode }) {
 
   return (
     <AgentCtx.Provider value={{ status, events, connected, busy, error,
-      activate: () => call("/api/agent/activate"), deactivate: () => call("/api/agent/deactivate") }}>
+      activate: () => call("/api/agent/activate"), deactivate: () => call("/api/agent/deactivate"),
+      emergencyStop: () => call("/api/agent/emergency-stop") }}>
       {children}
     </AgentCtx.Provider>
   );
@@ -93,6 +100,9 @@ export function useAgent() {
 export const STATE_LABEL: Record<string, string> = {
   offline: "Offline", initialising: "Initialising", running: "Running", scanning: "Scanning", analysing: "Analysing",
   evaluating: "Evaluating opportunities", monitoring: "Monitoring positions", error: "Error", stopped: "Stopped",
+};
+export const MODE_LABEL: Record<string, string> = {
+  off: "Inactive", trading: "Autonomous trading", managing: "Managing open positions only", emergency_stopped: "Emergency stopped",
 };
 export const STATE_KIND: Record<string, "up" | "down" | "warn" | "info" | "neutral" | "amber"> = {
   offline: "neutral", initialising: "info", running: "up", scanning: "info", analysing: "info", evaluating: "amber",

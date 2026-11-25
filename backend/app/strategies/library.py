@@ -145,7 +145,72 @@ class VolumeSurge(Strategy):
         return None
 
 
-STRATEGIES: list[Strategy] = [Momentum(), MeanReversion(), LiquiditySweep(), Breakout(), VolumeSurge()]
+class TrendFollow(Strategy):
+    name, label = "trend", "Trend following"
+    description = ("Enters when a trend newly forms (close > EMA20 > EMA50, 20-bar return > 0, MACD histogram > 0); "
+                   "no fixed target — a 3×ATR trailing stop and a close back through EMA20 end the trade.")
+    exit_mode = "trail"
+    trail_atr = 3.0
+
+    @staticmethod
+    def _state(s: Series, a: Analysis, t: int) -> int:
+        e20, e50, h = a.ema20[t], a.ema50[t], a.macd_hist[t]
+        if t < 60 or np.isnan(e50) or np.isnan(h):
+            return 0
+        if s.c[t] > e20 > e50 and s.c[t] > s.c[t - 20] and h > 0:
+            return 1
+        if s.c[t] < e20 < e50 and s.c[t] < s.c[t - 20] and h < 0:
+            return -1
+        return 0
+
+    def evaluate(self, s: Series, a: Analysis, t: int) -> Signal | None:
+        st, prev = self._state(s, a, t), self._state(s, a, t - 1)
+        if st == 0 or st == prev:          # only a NEW trend state triggers an entry
+            return None
+        direction = "long" if st > 0 else "short"
+        if not self.allowed(s, direction):
+            return None
+        roc = s.c[t] / s.c[t - 20] - 1
+        ev = [f"Close {'above' if st > 0 else 'below'} EMA20 {'>' if st > 0 else '<'} EMA50",
+              f"20-bar return {roc * 100:+.2f}%", f"MACD histogram {a.macd_hist[t]:+.4g}"]
+        return Signal(self.name, direction, t, round(min(1.0, 0.4 + min(abs(roc) * 5, 0.4)), 3),
+                      float(s.c[t] - st * 3 * a.atr[t]), bullish=ev if st > 0 else [], bearish=ev if st < 0 else [],
+                      features={"roc20": roc, "macd_hist": float(a.macd_hist[t])}, exit_mode="trail")
+
+    def should_exit(self, s: Series, a: Analysis, t: int, direction: str) -> str | None:
+        e20 = a.ema20[t]
+        if np.isnan(e20):
+            return None
+        if direction == "long" and s.c[t] < e20:
+            return f"close {s.c[t]:.6g} fell below EMA20 {e20:.6g} (trend exit)"
+        if direction == "short" and s.c[t] > e20:
+            return f"close {s.c[t]:.6g} rose above EMA20 {e20:.6g} (trend exit)"
+        return None
+
+
+class BollingerReversion(Strategy):
+    name, label = "bollinger", "Bollinger reversion"
+    description = "Close back inside the Bollinger band after a close outside it, with RSI confirming, in a non-trending market."
+
+    def evaluate(self, s: Series, a: Analysis, t: int) -> Signal | None:
+        if t < 60 or np.isnan(a.std20[t]) or np.isnan(a.rsi[t]):
+            return None
+        up, lo = a.bb_upper, a.bb_lower
+        flat = abs(a.ema20[t] / a.ema50[t] - 1) < 0.5 * a.atr[t] / s.c[t]
+        if not flat:
+            return None
+        if s.c[t - 1] < lo[t - 1] and s.c[t] > lo[t] and a.rsi[t] < 40 and self.allowed(s, "long"):
+            return Signal(self.name, "long", t, 0.45, float(min(s.l[t - 1], s.l[t])),
+                          bullish=["Close back inside lower Bollinger band", f"RSI {a.rsi[t]:.1f}", "EMA20≈EMA50 (range)"],
+                          features={"rsi": float(a.rsi[t])})
+        if s.c[t - 1] > up[t - 1] and s.c[t] < up[t] and a.rsi[t] > 60 and self.allowed(s, "short"):
+            return Signal(self.name, "short", t, 0.45, float(max(s.h[t - 1], s.h[t])),
+                          bearish=["Close back inside upper Bollinger band", f"RSI {a.rsi[t]:.1f}", "EMA20≈EMA50 (range)"],
+                          features={"rsi": float(a.rsi[t])})
+        return None
+
+
+STRATEGIES: list[Strategy] = [Momentum(), MeanReversion(), LiquiditySweep(), Breakout(), VolumeSurge(), TrendFollow(), BollingerReversion()]
 BY_NAME = {x.name: x for x in STRATEGIES}
 
 # Not paper-traded yet, listed so the UI states their status honestly.

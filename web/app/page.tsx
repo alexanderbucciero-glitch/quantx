@@ -1,10 +1,12 @@
 "use client";
 import Link from "next/link";
 import { useApi } from "@/lib/api";
-import { STATE_LABEL, useAgent } from "@/lib/agent";
 import { fmtNum, fmtPct, fmtPrice, tone } from "@/lib/format";
 import { PageHead, Panel, Pill, Stat } from "@/components/ui";
 import { CryptoTable, MarketsTable, MemeTable, NewsList, SecEvents, type Coin, type MarketRow } from "@/components/widgets";
+import { AgentStatusPanel, LatestReports, OpenPositions, PortfolioPanel, TradingActivity } from "@/components/desk";
+import { ReportDrawer } from "@/components/Report";
+import { useState } from "react";
 
 function TopStrip() {
   const m = useApi<{ rows: MarketRow[] }>("/api/markets/overview", 15 * 60_000);
@@ -28,21 +30,6 @@ function TopStrip() {
   );
 }
 
-function AgentPanel() {
-  const { status } = useAgent();
-  const c = status?.counters ?? {};
-  return (
-    <Panel title="AI agent" right={<Link href="/agent" className="text-amber hover:underline">Open →</Link>}>
-      <div className="p-3 grid grid-cols-2 gap-3 text-xs">
-        <Stat label="State" value={<span className="font-sans text-[13px]">{STATE_LABEL[status?.state ?? "offline"] ?? status?.state}</span>} sub={status?.current.task ?? "Press ACTIVATE AI to start"} />
-        <Stat label="Assets scanned" value={status?.assets.total ?? 0} sub={`${status?.assets.eligible ?? 0} tradeable`} />
-        <Stat label="Setups / rejected" value={`${c.opportunities_detected ?? 0} / ${c.opportunities_rejected ?? 0}`} />
-        <Stat label="Analysis latency" value={status?.latency.analysis_ms?.avg != null ? `${status.latency.analysis_ms.avg} ms` : "—"} sub="per asset, per candle" />
-      </div>
-    </Panel>
-  );
-}
-
 type Opp = { id: number; ts: number; asset: string; strategy: string; direction: string; status: string; reason: string | null };
 
 function DecisionsPanel() {
@@ -61,32 +48,16 @@ function DecisionsPanel() {
   );
 }
 
-function PaperPanel() {
-  const d = useApi<{ equity: number; total_return_pct: number; open_positions: number; closed_trades: number; win_rate: number | null }>("/api/paper/portfolio", 15_000);
-  return (
-    <Panel title="Paper portfolio (simulated)" right={<Link href="/portfolio" className="text-amber hover:underline">Open →</Link>}>
-      {!d.data ? <div className="p-3 text-xs text-dim">Loading…</div> : (
-        <div className="p-3 grid grid-cols-2 gap-3">
-          <Stat label="Simulated equity" value={`$${fmtNum(d.data.equity)}`} />
-          <Stat label="Total return" value={fmtPct(d.data.total_return_pct / 100)} valueClass={tone(d.data.total_return_pct)} />
-          <Stat label="Open positions" value={d.data.open_positions} />
-          <Stat label="Closed / win rate" value={`${d.data.closed_trades} / ${d.data.win_rate == null ? "—" : Math.round(d.data.win_rate * 100) + "%"}`} />
-        </div>
-      )}
-    </Panel>
-  );
-}
-
 type StratRow = { label: string; asset_class: string; trades: number; tp1_hit_rate: number; avg_net_pct: number };
 
 function ModelPanel() {
-  const d = useApi<{ calibration: { trades_total?: number; strategies?: Record<string, StratRow> } }>("/api/strategies", 60_000);
-  const rows = Object.values(d.data?.calibration?.strategies ?? {}).filter(r => r.trades >= 30).sort((a, b) => b.avg_net_pct - a.avg_net_pct).slice(0, 4);
+  const d = useApi<{ calibration: { trades_total?: number; combo_stats?: Record<string, StratRow & { tf: string; direction: string; tier: string }> } }>("/api/strategies", 60_000);
+  const rows = Object.values(d.data?.calibration?.combo_stats ?? {}).filter(r => r.trades >= 10).sort((a, b) => b.avg_net_pct - a.avg_net_pct).slice(0, 5);
   return (
-    <Panel title="Model accuracy (walk-forward)" right={<Link href="/predictions" className="text-amber hover:underline">Details →</Link>}>
+    <Panel title="Best backtest evidence (after costs)" right={<Link href="/predictions" className="text-amber hover:underline">Details →</Link>}>
       {!d.data ? <div className="p-3 text-xs text-dim">Loading…</div> : rows.length === 0 ? <div className="p-3 text-xs text-mute">Not validated yet. Validation runs after the agent loads candle history.</div> : (
         <ul className="p-3 space-y-1 text-xs">{rows.map(r => (
-          <li key={r.label + r.asset_class} className="flex gap-2"><span className="text-text w-28 truncate">{r.label}</span><span className="text-dim w-16">{r.asset_class}</span>
+          <li key={r.label + r.asset_class + r.tf + r.direction} className="flex gap-2"><span className="text-text w-36 truncate">{(r as any).strategy} {r.tf} {r.direction}</span><span className="text-dim w-16">{r.asset_class}</span>
             <span className="num">TP1 {Math.round(r.tp1_hit_rate * 100)}%</span>
             <span className={`num ml-auto ${tone(r.avg_net_pct)}`}>{r.avg_net_pct >= 0 ? "+" : ""}{fmtNum(r.avg_net_pct)}%/trade</span></li>))}
           <li className="text-2xs text-dim pt-1">{d.data.calibration.trades_total} simulated historical setups, net of costs</li></ul>
@@ -96,15 +67,21 @@ function ModelPanel() {
 }
 
 export default function Dashboard() {
+  const [report, setReport] = useState<number | null>(null);
   return (
     <>
-      <PageHead title="Dashboard" sub="Live view from free public sources. Everything labelled simulated is paper trading; nothing here can place a real order." />
+      <PageHead title="Dashboard" sub="Autonomous paper-trading desk on real market data. All capital and transactions are simulated; QUANTX cannot place real orders." />
       <div className="grid gap-3">
+        <AgentStatusPanel />
+        <PortfolioPanel />
+        <OpenPositions onReport={setReport} />
+        <div className="grid gap-3 xl:grid-cols-[1.6fr_1fr]">
+          <TradingActivity limit={30} />
+          <LatestReports />
+        </div>
         <TopStrip />
-        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-          <AgentPanel />
+        <div className="grid gap-3 md:grid-cols-2">
           <DecisionsPanel />
-          <PaperPanel />
           <ModelPanel />
         </div>
         <div className="grid gap-3 xl:grid-cols-[1.1fr_1fr]">
@@ -120,6 +97,7 @@ export default function Dashboard() {
           <div className="p-3 text-xs text-mute leading-relaxed">Needs Reddit or YouTube API access (free, but Reddit requires approval). X has no free read access. Nothing is shown here until a permitted source is connected. <Link href="/social" className="text-amber hover:underline">Details →</Link></div>
         </Panel>
       </div>
+      <ReportDrawer id={report} onClose={() => setReport(null)} />
     </>
   );
 }
