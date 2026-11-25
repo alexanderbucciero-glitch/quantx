@@ -5,7 +5,7 @@ Unit of decision: a combo = strategy × asset class × timeframe × direction.
 Tiers
   active      : backtest mean net return per trade has a 90% CI entirely above 0 (n ≥ 30), and the most
                 recent half of the history is also positive.                         → normal risk
-  exploration : not proven but not disproven: the 90% CI upper bound is above 0, n ≥ 10, and the recent
+  exploration : not proven but not disproven: mean ≥ 0, the 90% CI upper bound is above 0, n ≥ 10, and the recent
                 half is not negative. Traded autonomously with small risk to gather live evidence.
   disabled    : the 90% CI is entirely below 0, the recent half is negative, or too few samples.
 
@@ -55,7 +55,7 @@ def tier_from(net_chrono: list[float]) -> tuple[str, str, dict]:
     st["recent_mean"] = recent["mean"]
     if n >= MIN_ACTIVE and st["lo90"] > 0 and recent["mean"] > 0:
         return "active", f"mean {st['mean']:+.2f}%/trade, 90% CI [{st['lo90']:+.2f}, {st['hi90']:+.2f}] above zero", st
-    if st["hi90"] > 0 and recent["mean"] >= 0:
+    if st["hi90"] > 0 and st["mean"] >= 0 and recent["mean"] >= 0:   # never explore a setup whose best estimate is a loss
         return "exploration", (f"unproven: mean {st['mean']:+.2f}%/trade, 90% CI [{st['lo90']:+.2f}, {st['hi90']:+.2f}] "
                                f"includes zero; recent half {recent['mean']:+.2f}%"), st
     why = (f"90% CI [{st['lo90']:+.2f}, {st['hi90']:+.2f}] below zero" if st["hi90"] <= 0
@@ -150,8 +150,22 @@ class Selector:
             return "disabled", "no historical evidence for this strategy/market/timeframe/direction yet", {}
         return t["tier"], t["reason"], t
 
+    def failing(self) -> bool:
+        """True when trades picked by the selection rule lost money out of sample (90% CI below zero)."""
+        sel = (self.validation or {}).get("selected") or {}
+        return bool(sel.get("n", 0) >= MIN_EXPLORE and sel.get("hi90") is not None and sel["hi90"] < 0)
+
+    def warning(self) -> str | None:
+        if not self.failing():
+            return None
+        sel = self.validation["selected"]
+        return (f"Selection rule failed its own out-of-sample test: setups picked by past evidence averaged "
+                f"{sel['mean']:+.2f}%/trade (n={sel['n']}). Exploration trades are forward tests, not expected winners.")
+
     def summary(self) -> dict:
         by = defaultdict(int)
         for v in self.tiers.values():
             by[v["tier"]] += 1
         return {"counts": dict(by), "combos": self.tiers, "selection_validation": self.validation}
+
+

@@ -466,7 +466,7 @@ async def strategies_evidence(account: str = "live"):
                       .order_by(db.strategy_changes.c.ts.desc()).limit(100))
     return plain({**sel.summary(), "changes": changes,
                   "rules": {"active": "backtest 90% CI of mean net return entirely above 0 (n ≥ 30) and recent half positive",
-                            "exploration": "unproven: 90% CI includes 0, n ≥ 10, recent half not negative — traded at small size",
+                            "exploration": "unproven: mean ≥ 0 but 90% CI includes 0, n ≥ 10, recent half not negative — traded at small size",
                             "disabled": "90% CI below 0, recent half negative, or too few samples",
                             "live_demote": "≥ 10 live trades with 90% CI upper bound < 0",
                             "live_promote": "≥ 20 live trades with 90% CI lower bound > 0"}})

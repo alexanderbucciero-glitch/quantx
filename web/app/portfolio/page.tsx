@@ -44,6 +44,7 @@ function Settings({ s, onSaved }: { s: any; onSaved: () => void }) {
           <select id="set-deact" value={v.deactivate_mode} onChange={e => setV({ ...v, deactivate_mode: e.target.value })} className={inp}><option value="manage">keep managing open positions</option><option value="flatten">close all positions at market</option></select></label>
         <label className="flex items-center gap-2 text-xs text-mute mt-4"><input id="set-short" type="checkbox" checked={v.allow_short} onChange={e => setV({ ...v, allow_short: e.target.checked })} />Allow simulated shorts</label>
         <label className="flex items-center gap-2 text-xs text-mute mt-4"><input id="set-explore" type="checkbox" checked={v.exploration_enabled} onChange={e => setV({ ...v, exploration_enabled: e.target.checked })} />Exploration trades</label>
+        <label className="flex items-center gap-2 text-xs text-mute mt-4"><input id="set-pause" type="checkbox" checked={!!v.pause_exploration_if_selection_fails} onChange={e => setV({ ...v, pause_exploration_if_selection_fails: e.target.checked })} />Pause exploration if the selection rule fails out of sample</label>
       </div>
       <div className="flex items-center gap-3"><button onClick={save} className="h-7 px-3 rounded-[2px] bg-amber text-ink text-xs font-semibold">Save settings</button>{msg && <span className="text-xs text-mute">{msg}</span>}
         <span className="text-2xs text-dim">Fees per side: {Object.entries(s.fees).map(([k, f]: [string, any]) => `${k} ${f.maker}/${f.taker}%`).join(" · ")} (maker/taker)</span></div>

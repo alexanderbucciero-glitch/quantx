@@ -168,6 +168,8 @@ class Desk:
                         (f"TP1 +{plan['tp1_pct']:.2f}% / R:R {plan['rr_net']:.2f} after costs" if plan.get("tp1") else f"trailing {plan['trail_atr']}×ATR exit")
                         if plan else rej["reason"].replace("_", " "))},
             {"gate": "Live quote", "passed": q is not None, "detail": "bid/ask available" if q else "no live quote"},
+            {"gate": "Selection rule validated", "passed": not (tier == "exploration" and st.get("pause_exploration_if_selection_fails") and self.selector.failing()),
+             "detail": "exploration paused: setups picked by past evidence lost money out of sample (conservative mode)" if tier == "exploration" and st.get("pause_exploration_if_selection_fails") and self.selector.failing() else "ok"},
         ]
         rd = None
         if all(g["passed"] for g in gates):

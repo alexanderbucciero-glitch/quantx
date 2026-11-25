@@ -330,3 +330,11 @@ def test_agent_activate_deactivate_emergency_and_recovery(tdb, monkeypatch):
         await ag.shutdown()
         await ag2.shutdown()
     asyncio.run(run())
+
+
+def test_selection_rule_warning_and_conservative_pause(tdb):
+    from app.quant.selector import Selector
+    sel = Selector("v1")
+    assert not sel.failing() and sel.warning() is None
+    sel.validation = {"selected": {"n": 50, "mean": -1.0, "hi90": -0.2, "lo90": -1.8}}
+    assert sel.failing() and "failed its own out-of-sample test" in sel.warning()

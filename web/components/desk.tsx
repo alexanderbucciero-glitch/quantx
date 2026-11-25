@@ -43,6 +43,7 @@ export function AgentStatusPanel() {
             <span className="text-text ml-1.5">{ld.asset}</span><span className="text-mute ml-1.5">{ld.reason}</span>
             <span className="text-dim num ml-1.5">{utc(ld.ts)} UTC</span></> : <span className="text-dim">none yet</span>}</div>
           {status?.entries_suspended && <div className="text-warn">New entries suspended: {status.entries_suspended}</div>}
+          {(status as any)?.selection_warning && <div className="text-warn">{(status as any).selection_warning}</div>}
         </div>
       </div>
     </Panel>

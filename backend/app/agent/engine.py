@@ -182,6 +182,7 @@ class Agent:
             "positions_open": acct["open_positions"], "account": acct,
             "entries_suspended": entries_suspended(self.broker, time.time()),
             "tiers": self.selector.summary()["counts"],
+            "selection_warning": self.selector.warning(),
             "latency": {k: {"avg": avg(v), "p95": p95(v), "n": len(v)} for k, v in self.latency.items()},
             "stream": {"connected": self.stream.connected, "messages": self.stream.messages,
                        "last_msg_age_s": (time.time() - self.stream.last_msg_at) if self.stream.last_msg_at else None},
@@ -468,21 +469,26 @@ class Agent:
                     return a, tf, await self._fetch(a, tf), None
                 except UpstreamError as e:
                     return a, tf, None, e
-            results = list(await asyncio.gather(*[fetch(a, tf) for a, tf in due if a.source == "coinbase"]))
-            for a, tf in due:
-                if a.source != "coinbase":
-                    results.append(await fetch(a, tf))
-            for a, tf, new, err in sorted(results, key=lambda r: -r[0].rank_score):
+            async def process(a: AssetState, tf: str, new, err) -> None:
                 close_t = a.next_close[tf]
                 a.next_close[tf] = self._next_close(tf)
                 if err is not None:
                     self._source(err.source, False, err.message)
                     await self.emit(f"{a.display} {tf}: candle update failed ({err.message}); retry next bar", "data", "warn", asset=a.display)
-                    continue
+                    return
                 if a.series[tf].merge(new) == 0:
-                    continue
+                    return
                 await self.analyse_asset(a, tf, t_event=close_t)
                 self.latency["candle_to_decision_ms"].append((time.time() - close_t) * 1000)
+
+            # decide on each market as soon as ITS data arrives: fast Coinbase batch first (concurrent),
+            # then rate-limited Kraken and DEX sources one by one — slow sources never delay fast ones
+            for r in sorted(await asyncio.gather(*[fetch(a, tf) for a, tf in due if a.source == "coinbase"]),
+                            key=lambda r: -r[0].rank_score):
+                await process(*r)
+            for a, tf in sorted([x for x in due if x[0].source == "kraken"], key=lambda x: -x[0].rank_score) + \
+                    [x for x in due if x[0].source == "geckoterminal"]:
+                await process(*(await fetch(a, tf)))
             if not due:
                 self.set_state("monitoring" if self.broker.positions("open") else ("running" if self.active else "monitoring"),
                                "Waiting for the next candle close; live prices update positions continuously")

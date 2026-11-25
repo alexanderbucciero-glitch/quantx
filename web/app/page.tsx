@@ -58,7 +58,7 @@ function ModelPanel() {
       {!d.data ? <div className="p-3 text-xs text-dim">Loading…</div> : rows.length === 0 ? <div className="p-3 text-xs text-mute">Not validated yet. Validation runs after the agent loads candle history.</div> : (
         <ul className="p-3 space-y-1 text-xs">{rows.map(r => (
           <li key={r.label + r.asset_class + r.tf + r.direction} className="flex gap-2"><span className="text-text w-36 truncate">{(r as any).strategy} {r.tf} {r.direction}</span><span className="text-dim w-16">{r.asset_class}</span>
-            <span className="num">TP1 {Math.round(r.tp1_hit_rate * 100)}%</span>
+            <span className="num">win {Math.round(((r as any).win_rate ?? 0) * 100)}%</span>
             <span className={`num ml-auto ${tone(r.avg_net_pct)}`}>{r.avg_net_pct >= 0 ? "+" : ""}{fmtNum(r.avg_net_pct)}%/trade</span></li>))}
           <li className="text-2xs text-dim pt-1">{d.data.calibration.trades_total} simulated historical setups, net of costs</li></ul>
       )}

@@ -27,7 +27,7 @@ UTC midnight ─► daily report (+ weekly on Mondays, monthly on the 1st)
 2. Tradeable market: volume, liquidity, spread and data quality.
 3. **Strategy evidence tier** (`app/quant/selector.py`):
    - **active:** backtest 90% CI of the mean net return per trade is entirely above zero (n ≥ 30) and the recent half is positive. Trades at normal risk (0.5% of equity).
-   - **exploration:** unproven, with a CI that includes zero, n ≥ 10 and a recent half that is not negative. Trades autonomously at small risk (0.1%) to gather live evidence.
+   - **exploration:** unproven, with a non-negative average but a CI that includes zero, n ≥ 10 and a recent half that is not negative. Trades autonomously at small risk (0.1%) to gather live evidence.
    - **disabled:** the CI is below zero, the recent half is negative, or there are too few samples. Never traded.
 4. A viable plan:
    - target strategies: a stop and the smallest realistic target from the ladder (0.75–5%) with reward/risk after costs ≥ 1.2

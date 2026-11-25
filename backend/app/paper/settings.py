@@ -9,6 +9,7 @@ DEFAULT_SETTINGS = {
     "risk_per_trade_pct": 0.5,            # strategies in the evidence tier "active"
     "exploration_risk_pct": 0.1,          # strategies in "exploration" (not yet proven, not disproven)
     "exploration_enabled": True,
+    "pause_exploration_if_selection_fails": False,   # conservative mode: no exploration while the selection rule loses out of sample
     "max_open_positions": 6,
     "max_position_pct": 20.0,             # notional cap per position, % of equity
     "max_memecoin_position_pct": 2.0,
